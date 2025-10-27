@@ -13,6 +13,7 @@ from PIL import Image
 from PIL.ImageOps import exif_transpose
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 import albumentations as A
 
@@ -634,6 +635,11 @@ def get_dataloader_from_datasets(
 
     concatenated_dataset = ConcatDataset(datasets)
 
+    accelerator = get_accelerator()
+    num_processes = getattr(accelerator, "num_processes", 1)
+    process_index = getattr(accelerator, "process_index", 0)
+    use_distributed_sampler = num_processes > 1
+
     # todo build scheduler that can get buckets from all datasets that match
     # todo and evenly distribute reg images
 
@@ -652,7 +658,18 @@ def get_dataloader_from_datasets(
         dataloader_kwargs['num_workers'] = 0
     else:
         dataloader_kwargs['num_workers'] = dataset_config_list[0].num_workers
-        dataloader_kwargs['prefetch_factor'] = dataset_config_list[0].prefetch_factor
+        if dataloader_kwargs['num_workers'] > 0:
+            dataloader_kwargs['prefetch_factor'] = dataset_config_list[0].prefetch_factor
+
+    sampler = None
+    if use_distributed_sampler:
+        sampler = DistributedSampler(
+            concatenated_dataset,
+            num_replicas=num_processes,
+            rank=process_index,
+            shuffle=True,
+            drop_last=False,
+        )
 
     if has_buckets:
         # make sure they all have buckets
@@ -663,7 +680,8 @@ def get_dataloader_from_datasets(
             concatenated_dataset,
             batch_size=None,  # we batch in the datasets for now
             drop_last=False,
-            shuffle=True,
+            shuffle=sampler is None,
+            sampler=sampler,
             collate_fn=dto_collation,  # Use the custom collate function
             **dataloader_kwargs
         )
@@ -671,7 +689,8 @@ def get_dataloader_from_datasets(
         data_loader = DataLoader(
             concatenated_dataset,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=sampler is None,
+            sampler=sampler,
             collate_fn=dto_collation,
             **dataloader_kwargs
         )
@@ -681,6 +700,11 @@ def get_dataloader_from_datasets(
 def trigger_dataloader_setup_epoch(dataloader: DataLoader):
     # hacky but needed because of different types of datasets and dataloaders
     dataloader.len = None
+    sampler = getattr(dataloader, "sampler", None)
+    if sampler is not None and hasattr(sampler, "set_epoch"):
+        next_epoch = getattr(dataloader, "_aitk_sampler_epoch", -1) + 1
+        sampler.set_epoch(next_epoch)
+        dataloader._aitk_sampler_epoch = next_epoch
     if isinstance(dataloader.dataset, list):
         for dataset in dataloader.dataset:
             if hasattr(dataset, 'datasets'):

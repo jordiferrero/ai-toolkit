@@ -741,9 +741,10 @@ class BaseSDTrainProcess(BaseTrainProcess):
         self.optimizer = self.accelerator.prepare(self.optimizer)
         if self.lr_scheduler is not None:
             self.lr_scheduler = self.accelerator.prepare(self.lr_scheduler)
-        # self.data_loader = self.accelerator.prepare(self.data_loader)
-        # if self.data_loader_reg is not None:
-        #     self.data_loader_reg = self.accelerator.prepare(self.data_loader_reg)
+        if self.data_loader is not None:
+            self.data_loader = self.accelerator.prepare_data_loader(self.data_loader)
+        if self.data_loader_reg is not None:
+            self.data_loader_reg = self.accelerator.prepare_data_loader(self.data_loader_reg)
             
 
     def ensure_params_requires_grad(self, force=False):
@@ -1559,10 +1560,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
             custom_pipeline=self.custom_pipeline,
             noise_scheduler=sampler,
         )
-        
+
         self.hook_after_sd_init_before_load()
         # run base sd process run
-        self.sd.load_model()
+        with self.accelerator.main_process_first():
+            self.sd.load_model()
+        self.accelerator.wait_for_everyone()
         
         # compile the model if needed
         if self.model_config.compile:
@@ -1996,6 +1999,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
         if self.datasets_reg is not None:
             self.data_loader_reg = get_dataloader_from_datasets(self.datasets_reg, self.train_config.batch_size,
                                                                 self.sd)
+
+        if self.data_loader is not None or self.data_loader_reg is not None:
+            self.accelerator.wait_for_everyone()
 
         flush()
         self.last_save_step = self.step_num
