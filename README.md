@@ -314,6 +314,34 @@ You will instantiate a UI that will let you upload your images, caption them, tr
 ![image](assets/lora_ease_ui.png)
 
 
+## Multi-GPU training
+
+The training backend now supports launching with Hugging Face [Accelerate](https://github.com/huggingface/accelerate)
+so you can utilize every GPU that is available on the host. There are two ways to configure the accelerator:
+
+1. **Pass a config file or JSON payload** – supply `--accelerator-config` when calling `run.py` to point at a
+   YAML/JSON file (or inline JSON) with keyword arguments that are forwarded directly to
+   [`Accelerator`](https://huggingface.co/docs/accelerate/package_reference/accelerator#accelerate.Accelerator).
+   The same payload can be supplied through the `AIT_ACCELERATOR_CONFIG` environment variable.
+2. **Launch via Accelerate** – use `python run.py --accelerate ...` to re-exec the script through
+   `accelerate launch`, optionally providing `--accelerate-num-processes`, `--accelerate-num-machines`,
+   `--accelerate-machine-rank`, `--accelerate-main-process-ip`, or `--accelerate-main-process-port` for
+   multi-machine jobs. Add `--accelerate-cpu` for local CPU-only smoke tests.
+
+Heavy initialisation steps such as loading the Stable Diffusion weights are synchronised internally with
+`accelerator.main_process_first()` to avoid redundant work on secondary ranks. During review we execute the
+distributed unit and integration tests on CPU ranks (see `pytest tests`), so community members running on real
+multi-GPU hosts should additionally validate a short training job before long runs.
+
+### Continuous integration on GPUs
+
+A dedicated GitHub Actions workflow (`.github/workflows/gpu-tests.yml`) exercises the test-suite on a
+CUDA-capable runner. Attach a self-hosted runner that advertises the `gpu` label (for example, a machine with
+four 24&nbsp;GB cards) to have each push and pull request automatically execute `pytest tests -m "not slow"`
+with GPU visibility confirmed via `nvidia-smi`. Refer to the
+[GitHub runner documentation](https://docs.github.com/en/actions/hosting-your-own-runners) for details on
+registering a GPU machine.
+
 ## Training in RunPod
 If you would like to use Runpod, but have not signed up yet, please consider using [my Runpod affiliate link](https://runpod.io?ref=h0y9jyr2) to help support this project.
 

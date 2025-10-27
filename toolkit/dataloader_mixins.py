@@ -39,8 +39,6 @@ if TYPE_CHECKING:
     from toolkit.data_transfer_object.data_loader import FileItemDTO
     from toolkit.stable_diffusion_model import StableDiffusion
 
-accelerator = get_accelerator()
-
 # def get_associated_caption_from_img_path(img_path):
 # https://demo.albumentations.ai/
 class Augments:
@@ -1716,6 +1714,7 @@ class LatentCachingMixin:
     def cache_latents_all_latents(self: 'AiToolkitDataset'):
         if self.dataset_config.num_frames > 1:
             raise Exception("Error: caching latents is not supported for multi-frame datasets")
+        accelerator = get_accelerator()
         with accelerator.main_process_first():
             print_acc(f"Caching latents for {self.dataset_path}")
             # cache all latents to disk
@@ -1865,6 +1864,7 @@ class TextEmbeddingCachingMixin:
         self.is_caching_text_embeddings = self.dataset_config.cache_text_embeddings
 
     def cache_text_embeddings(self: 'AiToolkitDataset'):
+        accelerator = get_accelerator()
         with accelerator.main_process_first():
             print_acc(f"Caching text_embeddings for {self.dataset_path}")
             print_acc(" - Saving text embeddings to disk")
